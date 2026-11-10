@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>視線で答える 足し算クイズ (Pro Edition)</title>
+    <!-- MediaPipe FaceMesh & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+            background-color: #f0f4f8;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .controls {
+            background-color: #2c3e50;
+            color: white;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: bold;
+            color: #ecf0f1;
+        }
+        
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            background: rgba(0,0,0,0.2);
+            padding: 5px 12px;
+            border-radius: 8px;
+        }
+
+        .status-badge {
+            font-size: 16px;
+            font-weight: bold;
+            padding: 6px 14px;
+            border-radius: 12px;
+            background-color: #7f8c8d;
+            color: white;
+            margin-right: 15px;
+        }
+        .status-straight { background-color: #2ecc71; }
+        .status-moved { background-color: #e67e22; }
+
+        #main-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            gap: 15px;
+            max-width: 900px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* スタート画面 */
+        #screen-start {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            margin: auto;
+            width: 100%;
+        }
+
+        .instruction-box {
+            background-color: #e8f4f8;
+            border: 2px solid #3498db;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+            font-size: 18px;
+            line-height: 1.8;
+        }
+
+        .btn {
+            border: none;
+            border-radius: 12px;
+            padding: 15px 30px;
+            font-size: 22px;
+            font-weight: bold;
+            cursor: pointer;
+            color: white;
+            background-color: #27ae60;
+            box-shadow: 0 4px 0 #1e8449;
+            margin: 5px;
+        }
+        .btn-read { background-color: #2196f3; box-shadow: 0 4px 0 #1565c0; font-size: 16px; padding: 8px 16px; }
+        .btn-print { background-color: #9c27b0; box-shadow: 0 4px 0 #6a1b9a; }
+
+        /* クイズ画面 */
+        #screen-quiz {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .question-card {
+            background-color: #ffffff;
+            border: 3px solid #3498db;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+
+        .question-text {
+            font-size: 46px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .choices-container {
+            display: flex;
+            gap: 15px;
+        }
+
+        .choice-card {
+            flex: 1;
+            border-radius: 15px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            border: 4px solid transparent;
+            opacity: 0.5;
+            transition: all 0.2s ease;
+            background-color: white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            min-height: 220px;
+        }
+
+        .choice-straight { border-color: #2ecc71; background-color: #e8f8f5; }
+        .choice-moved { border-color: #e67e22; background-color: #fef5e7; }
+
+        .choice-card.speaking {
+            opacity: 1.0 !important;
+            box-shadow: 0 0 20px rgba(241, 196, 15, 0.9) !important;
+            border-color: #f1c40f !important;
+        }
+
+        .choice-card.active {
+            opacity: 1.0;
+            transform: scale(1.02);
+            box-shadow: 0 0 20px rgba(52, 152, 219, 0.5);
+        }
+
+        .choice-badge {
+            font-size: 18px;
+            font-weight: bold;
+            padding: 6px 12px;
+            border-radius: 8px;
+            color: white;
+        }
+        .choice-straight .choice-badge { background-color: #2ecc71; }
+        .choice-moved .choice-badge { background-color: #e67e22; }
+
+        .choice-val {
+            font-size: 56px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin: 15px 0;
+        }
+
+        .gauge-container {
+            width: 100%;
+            height: 16px;
+            background-color: #dcdde1;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .gauge-bar {
+            height: 100%;
+            width: 0%;
+            transition: width 0.05s linear;
+        }
+        .choice-straight .gauge-bar { background-color: #2ecc71; }
+        .choice-moved .gauge-bar { background-color: #e67e22; }
+
+        .monitor-bar {
+            background: white;
+            border-radius: 10px;
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        #webcam {
+            width: 64px;
+            height: 48px;
+            border-radius: 6px;
+            object-fit: cover;
+            transform: scaleX(-1);
+            background: #000;
+        }
+
+        /* 結果画面 & 印刷スタイル */
+        #screen-result {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 18px;
+        }
+        .result-table th, .result-table td {
+            border: 2px solid #b2dfdb;
+            padding: 10px;
+            text-align: center;
+        }
+        .result-table th { background-color: #e0f2f1; }
+
+        #feedback {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 180px;
+            font-weight: bold;
+            display: none;
+            z-index: 200;
+            pointer-events: none;
+        }
+        .correct { color: #e74c3c; }
+        .incorrect { color: #3498db; }
+
+        .hidden { display: none !important; }
+
+        @media print {
+            .controls, .monitor-bar, .btn, #feedback, #webcam { display: none !important; }
+            body { background: white; color: black; }
+            #main-container { max-width: 100%; padding: 0; }
+            #screen-result { box-shadow: none; padding: 0; }
+            .result-table th { background-color: #eee !important; color: black; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <div class="title">計算アプリ (Pro仕様)</div>
+        <div style="display: flex; align-items: center;">
+            <span id="gaze-status" class="status-badge">カメラ準備中</span>
+            <div class="slider-container">
+                <label for="sens-slider" style="font-size: 13px; margin-bottom: 2px;">「そらし」検知感度: <span id="sens-label" style="font-weight:bold; color:#f1c40f;">高 (8)</span></label>
+                <input type="range" id="sens-slider" min="1" max="10" step="1" value="8" oninput="updateSensitivity()">
+            </div>
+        </div>
+    </div>
+
+    <div id="main-container">
+        <!-- スタート画面 -->
+        <div id="screen-start">
+            <h1 style="color: #2c3e50;">足し算クイズ</h1>
+            <div class="instruction-box">
+                <b>【答ええらびの操作方法】</b><br><br>
+                👀 <b>画面中央（まっすぐ正面）を見る</b> ➔ <b>左側の答え（約2秒）</b><br>
+                ↗️ <b>視線・顔を少しそらす</b> ➔ <b>右側の答え（約2秒）</b><br><br>
+                ※右上のスライダーで、少しの顔の動きでも反応するように感度を調整できます。
+            </div>
+            <button class="btn" onclick="initCameraAndStart()">📷 カメラを許可してスタート</button>
+        </div>
+
+        <!-- クイズ画面 -->
+        <div id="screen-quiz" class="hidden">
+            <div class="question-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 18px; color: #7f8c8d;" id="q-number">第 1 問</span>
+                    <button class="btn btn-read" onclick="readQuestionAndChoices()">🔊 もう一度読む</button>
+                </div>
+                <div class="question-text" id="q-text">3 + 5 = ?</div>
+            </div>
+
+            <div class="choices-container">
+                <div class="choice-card choice-straight" id="card-left">
+                    <div class="choice-badge">👀 まっすぐ見る（左）</div>
+                    <div class="choice-val" id="opt-left-val">8</div>
+                    <div class="gauge-container">
+                        <div id="gauge-left" class="gauge-bar"></div>
+                    </div>
+                </div>
+
+                <div class="choice-card choice-moved" id="card-right">
+                    <div class="choice-badge">↗️ 視線をそらす（右）</div>
+                    <div class="choice-val" id="opt-right-val">6</div>
+                    <div class="gauge-container">
+                        <div id="gauge-right" class="gauge-bar"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="monitor-bar">
+                <video id="webcam" autoplay playsinline muted></video>
+                <div style="font-size: 16px; color: #7f8c8d;">
+                    状態：<span id="status-detail" style="font-weight: bold; color: #2c3e50;">検出中</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 結果画面 -->
+        <div id="screen-result" class="hidden">
+            <h2 style="text-align: center; color: #2c3e50;">🎉 クイズ結果シート</h2>
+            <p style="text-align: center; font-size: 16px; margin-top: 5px;" id="result-date"></p>
+            <h1 style="text-align: center; color: #e67e22; margin: 15px 0;" id="score-display"></h1>
+
+            <table class="result-table">
+                <thead>
+                    <tr>
+                        <th>問題</th>
+                        <th>計算式</th>
+                        <th>あなたの答え</th>
+                        <th>正解</th>
+                        <th>判定</th>
+                    </tr>
+                </thead>
+                <tbody id="result-tbody"></tbody>
+            </table>
+
+            <div style="text-align: center; margin-top: 20px;">
+                <button class="btn btn-print" onclick="window.print()">📄 結果を印刷する</button>
+                <button class="btn" onclick="location.reload()">🔄 もう一度挑戦する</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="feedback"></div>
+
+    <script>
+        const HOLD_TIME = 2000; // キープ時間 (約2秒に短縮)
+
+        let gazeState = 'waiting'; 
+        let stateStartTime = 0;
+        let isProcessingChoice = false;
+        let isSpeaking = false;
+        let detectionThreshold = 0.04; 
+
+        let currentQuestion = null;
+        let qIndex = 0;
+        let score = 0;
+        let leftIsCorrect = false;
+        let resultsList = [];
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function updateSensitivity() {
+            const val = parseInt(document.getElementById('sens-slider').value);
+            detectionThreshold = 0.12 - ((val - 1) * (0.10 / 9));
+            
+            let label = "標準";
+            if (val >= 8) label = `高 (${val}) ※少しの動きで反応`;
+            else if (val <= 3) label = `低 (${val}) ※大きく動かす必要あり`;
+            else label = `標準 (${val})`;
+            
+            document.getElementById('sens-label').innerText = label;
+        }
+
+        updateSensitivity();
+
+        function generateQuestion() {
+            // 足し算のみ出題するように変更
+            let a = Math.floor(Math.random() * 9) + 1;
+            let b = Math.floor(Math.random() * 9) + 1;
+            let ans = a + b;
+
+            const offset = (Math.random() < 0.5 ? 1 : -1) * (Math.floor(Math.random() * 3) + 1);
+            let wrongAns = ans + offset;
+            if (wrongAns < 0) wrongAns = ans + 2;
+
+            leftIsCorrect = Math.random() < 0.5;
+
+            return {
+                a: a,
+                b: b,
+                op: '+',
+                speechText: `${a} たす ${b} は？`,
+                displayText: `${a} + ${b} = ?`,
+                leftVal: leftIsCorrect ? ans : wrongAns,
+                rightVal: leftIsCorrect ? wrongAns : ans,
+                correctVal: ans,
+                correctSide: leftIsCorrect ? 'left' : 'right'
+            };
+        }
+
+        function speak(text, callback) {
+            window.speechSynthesis.cancel();
+            const uttr = new SpeechSynthesisUtterance(text);
+            uttr.lang = 'ja-JP';
+            uttr.rate = 0.85;
+            isSpeaking = true;
+
+            uttr.onend = () => {
+                isSpeaking = false;
+                if (callback) callback();
+            };
+            uttr.onerror = () => {
+                isSpeaking = false;
+                if (callback) callback();
+            };
+            window.speechSynthesis.speak(uttr);
+        }
+
+        function readQuestionAndChoices() {
+            window.speechSynthesis.cancel();
+            resetSelection();
+            isProcessingChoice = true;
+
+            const cardLeft = document.getElementById('card-left');
+            const cardRight = document.getElementById('card-right');
+
+            cardLeft.classList.remove('speaking');
+            cardRight.classList.remove('speaking');
+
+            speak(currentQuestion.speechText, () => {
+                cardLeft.classList.add('speaking');
+                speak(`まっすぐ見ると、${currentQuestion.leftVal}`, () => {
+                    cardLeft.classList.remove('speaking');
+                    cardRight.classList.add('speaking');
+                    speak(`そらすと、${currentQuestion.rightVal}`, () => {
+                        cardRight.classList.remove('speaking');
+                        isProcessingChoice = false;
+                        stateStartTime = Date.now();
+                    });
+                });
+            });
+        }
+
+        function nextQuestion() {
+            if (qIndex >= 10) {
+                showResultScreen();
+                return;
+            }
+
+            qIndex++;
+            currentQuestion = generateQuestion();
+
+            document.getElementById('q-number').innerText = `第 ${qIndex} 問 / 全10問`;
+            document.getElementById('q-text').innerText = currentQuestion.displayText;
+            document.getElementById('opt-left-val').innerText = currentQuestion.leftVal;
+            document.getElementById('opt-right-val').innerText = currentQuestion.rightVal;
+
+            readQuestionAndChoices();
+        }
+
+        function resetSelection() {
+            gazeState = 'waiting';
+            stateStartTime = 0;
+            document.getElementById('gauge-left').style.width = '0%';
+            document.getElementById('gauge-right').style.width = '0%';
+            document.getElementById('card-left').classList.remove('active');
+            document.getElementById('card-right').classList.remove('active');
+        }
+
+        async function initCameraAndStart() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            document.getElementById('screen-start').classList.add('hidden');
+            document.getElementById('screen-quiz').classList.remove('hidden');
+
+            const videoElement = document.getElementById('webcam');
+            const faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            faceMesh.onResults(onFaceResults);
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await faceMesh.send({ image: videoElement });
+                },
+                width: 320,
+                height: 240
+            });
+
+            camera.start();
+            nextQuestion();
+        }
+
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        function onFaceResults(results) {
+            const badge = document.getElementById('gaze-status');
+            const statusDetail = document.getElementById('status-detail');
+
+            if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                badge.innerText = "顔未検出";
+                badge.className = "status-badge";
+                statusDetail.innerText = "カメラの前に顔を向けてください";
+                resetSelection();
+                return;
+            }
+
+            const landmarks = results.multiFaceLandmarks[0];
+
+            const leftCheek = landmarks[234];
+            const rightCheek = landmarks[454];
+            const noseTip = landmarks[1];
+            
+            const distLeft = getDistance(noseTip, leftCheek);
+            const distRight = getDistance(noseTip, rightCheek);
+            const yawRatio = distLeft / (distLeft + distRight); 
+
+            const leftEyeOuter = landmarks[33];
+            const leftEyeInner = landmarks[133];
+            const leftIris = landmarks[468];
+            const leftIrisRatio = getDistance(leftIris, leftEyeOuter) / getDistance(leftEyeInner, leftEyeOuter); 
+
+            const rightEyeOuter = landmarks[263];
+            const rightEyeInner = landmarks[362];
+            const rightIris = landmarks[473];
+            const rightIrisRatio = getDistance(rightIris, rightEyeInner) / getDistance(rightEyeInner, rightEyeOuter); 
+
+            const isHeadMoved = Math.abs(yawRatio - 0.5) > detectionThreshold;
+            const isEyeMoved = Math.abs(leftIrisRatio - 0.5) > (detectionThreshold * 1.2) || Math.abs(rightIrisRatio - 0.5) > (detectionThreshold * 1.2);
+
+            let detectedState = (isHeadMoved || isEyeMoved) ? 'moved' : 'straight';
+
+            if (detectedState === 'straight') {
+                badge.innerText = "正面（左選択）";
+                badge.className = "status-badge status-straight";
+                statusDetail.innerText = "まっすぐ見ている";
+            } else {
+                badge.innerText = "そらし（右選択）";
+                badge.className = "status-badge status-moved";
+                statusDetail.innerText = "視線・顔をそらしている";
+            }
+
+            if (!isProcessingChoice) {
+                updateGauge(detectedState);
+            }
+        }
+
+        function updateGauge(newState) {
+            const now = Date.now();
+
+            if (gazeState !== newState) {
+                gazeState = newState;
+                stateStartTime = now;
+            }
+
+            const elapsed = now - stateStartTime;
+            const progress = Math.min(100, (elapsed / HOLD_TIME) * 100);
+
+            const cardLeft = document.getElementById('card-left');
+            const cardRight = document.getElementById('card-right');
+            const gaugeLeft = document.getElementById('gauge-left');
+            const gaugeRight = document.getElementById('gauge-right');
+
+            if (gazeState === 'straight') {
+                cardLeft.classList.add('active');
+                cardRight.classList.remove('active');
+                gaugeLeft.style.width = progress + '%';
+                gaugeRight.style.width = '0%';
+
+                if (elapsed >= HOLD_TIME) {
+                    selectAnswer('left');
+                }
+            } else if (gazeState === 'moved') {
+                cardRight.classList.add('active');
+                cardLeft.classList.remove('active');
+                gaugeRight.style.width = progress + '%';
+                gaugeLeft.style.width = '0%';
+
+                if (elapsed >= HOLD_TIME) {
+                    selectAnswer('right');
+                }
+            }
+        }
+
+        function selectAnswer(side) {
+            isProcessingChoice = true;
+            window.speechSynthesis.cancel();
+
+            const chosenVal = (side === 'left') ? currentQuestion.leftVal : currentQuestion.rightVal;
+            const isCorrect = (side === currentQuestion.correctSide);
+
+            if (isCorrect) score++;
+
+            resultsList.push({
+                qNum: qIndex,
+                expr: `${currentQuestion.a} ${currentQuestion.op} ${currentQuestion.b}`,
+                userVal: chosenVal,
+                correctVal: currentQuestion.correctVal,
+                isCorrect: isCorrect
+            });
+
+            const feedback = document.getElementById('feedback');
+            feedback.style.display = 'block';
+            feedback.innerText = isCorrect ? '⭕️' : '❌';
+            feedback.className = isCorrect ? 'correct' : 'incorrect';
+
+            playSound(isCorrect);
+
+            setTimeout(() => {
+                feedback.style.display = 'none';
+                nextQuestion();
+            }, 1500);
+        }
+
+        function playSound(isCorrect) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (isCorrect) {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(1046.50, audioCtx.currentTime + 0.1);
+            } else {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(250, audioCtx.currentTime + 0.15);
+            }
+
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.4);
+        }
+
+        function showResultScreen() {
+            document.getElementById('screen-quiz').classList.add('hidden');
+            document.getElementById('screen-result').classList.remove('hidden');
+
+            const now = new Date();
+            document.getElementById('result-date').innerText = 
+                `実施日時: ${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+            document.getElementById('score-display').innerText = `全10問中 ➔ ${score} 問 正解！`;
+
+            const tbody = document.getElementById('result-tbody');
+            tbody.innerHTML = '';
+
+            resultsList.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>第 ${r.qNum} 問</td>
+                    <td style="font-weight:bold;">${r.expr}</td>
+                    <td>${r.userVal}</td>
+                    <td>${r.correctVal}</td>
+                    <td style="font-weight:bold; color:${r.isCorrect ? '#e74c3c' : '#3498db'};">
+                        ${r.isCorrect ? '⭕️ 正解' : '❌ 不正解'}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
